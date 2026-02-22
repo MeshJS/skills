@@ -108,9 +108,14 @@ const unsignedTx = await txBuilder
 ### Spend from Plutus Script (Inline Datum)
 
 ```typescript
+import { mConStr0 } from '@meshsdk/common';
+
 const unsignedTx = await txBuilder
-  // 1. Signal Plutus V2 script input
-  .spendingPlutusScriptV2()
+  // 1. Signal Plutus script version
+  //    Static: .spendingPlutusScriptV3()
+  //    Dynamic: .spendingPlutusScript("V3")
+  //    Both are equivalent — use whichever you prefer
+  .spendingPlutusScriptV3()
   // 2. Add the script UTxO
   .txIn(
     scriptUtxo.input.txHash,
@@ -122,8 +127,8 @@ const unsignedTx = await txBuilder
   .txInScript(scriptCbor)
   // 4. Signal inline datum is present
   .txInInlineDatumPresent()
-  // 5. Provide redeemer
-  .txInRedeemerValue({ data: { alternative: 0, fields: [] } })
+  // 5. Provide redeemer (Mesh format — convention for redeemers)
+  .txInRedeemerValue(mConStr0([]))
   // 6. Add collateral
   .txInCollateral(
     collateralUtxo.input.txHash,
@@ -138,26 +143,43 @@ const unsignedTx = await txBuilder
   .complete();
 ```
 
-### Spend from Plutus Script (Provided Datum)
+### Spend from Plutus Script (Datum Hash)
+
+When the UTxO was locked with `.txOutDatumHashValue()` (hash stored on-chain, not full datum), you must provide the full datum when spending:
 
 ```typescript
-const datum = {
-  constructor: 0,
-  fields: [
-    { bytes: ownerPubKeyHash },
-    { int: deadline }
-  ]
-};
+import { mConStr0 } from '@meshsdk/common';
+
+const datum = mConStr0([ownerPubKeyHash]);
 
 const unsignedTx = await txBuilder
-  .spendingPlutusScriptV2()
-  .txIn(scriptUtxo.input.txHash, scriptUtxo.input.outputIndex)
+  .spendingPlutusScriptV3()
+  .txIn(scriptUtxo.input.txHash, scriptUtxo.input.outputIndex,
+        scriptUtxo.output.amount, scriptAddress)
   .txInScript(scriptCbor)
-  .txInDatumValue(datum, 'Mesh')  // Provide datum
-  .txInRedeemerValue({ data: { alternative: 0, fields: [] } })
+  .txInDatumValue(datum)  // Must provide full datum for datum-hash UTxOs
+  .txInRedeemerValue(mConStr0([]))
   .txInCollateral(collateralHash, collateralIndex, collateralAmount, collateralAddr)
-  .requiredSignerHash(ownerPubKeyHash)  // Required for script validation
-  .invalidBefore(currentSlot)  // Validity interval
+  .requiredSignerHash(ownerPubKeyHash)
+  .txOut(recipientAddress, outputAmount)
+  .changeAddress(walletAddress)
+  .selectUtxosFrom(utxos)
+  .complete();
+```
+
+### Spend with Unused Redeemer (Generic Data Type)
+
+When the Aiken contract uses `_redeemer: Data` (not validated), pass an empty string:
+
+```typescript
+const unsignedTx = await txBuilder
+  .spendingPlutusScriptV3()
+  .txIn(scriptUtxo.input.txHash, scriptUtxo.input.outputIndex,
+        scriptUtxo.output.amount, scriptAddress)
+  .txInScript(scriptCbor)
+  .spendingReferenceTxInInlineDatumPresent()
+  .spendingReferenceTxInRedeemerValue("")  // Empty string for unused redeemer
+  .txInCollateral(collateralHash, collateralIndex, collateralAmount, collateralAddr)
   .txOut(recipientAddress, outputAmount)
   .changeAddress(walletAddress)
   .selectUtxosFrom(utxos)
@@ -168,7 +190,7 @@ const unsignedTx = await txBuilder
 
 ```typescript
 const unsignedTx = await txBuilder
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(scriptUtxo.input.txHash, scriptUtxo.input.outputIndex)
   // Reference script instead of inline
   .spendingTxInReference(
@@ -177,8 +199,9 @@ const unsignedTx = await txBuilder
     scriptSize.toString(),  // Script size in bytes
     scriptHash
   )
-  .txInInlineDatumPresent()
-  .txInRedeemerValue(redeemer)
+  // These alias methods are equivalent to txInInlineDatumPresent() / txInRedeemerValue()
+  .spendingReferenceTxInInlineDatumPresent()
+  .spendingReferenceTxInRedeemerValue(redeemer)
   .txInCollateral(...)
   .txOut(...)
   .changeAddress(walletAddress)
@@ -188,22 +211,43 @@ const unsignedTx = await txBuilder
 
 ### Lock Funds at Script Address
 
+Two approaches for datum construction — both are valid:
+
+**Mesh format (default type, simpler):**
 ```typescript
-const datum = {
-  constructor: 0,
-  fields: [
-    { bytes: beneficiaryPubKeyHash },
-    { int: unlockTime }
-  ]
-};
+import { mConStr0 } from '@meshsdk/common';
+
+// Mesh format: "alternative" keyword, primitive values directly
+const datum = mConStr0([beneficiaryPubKeyHash, unlockTime]);
+// Equivalent to: { alternative: 0, fields: [beneficiaryPubKeyHash, unlockTime] }
 
 const unsignedTx = await txBuilder
   .txOut(scriptAddress, [{ unit: 'lovelace', quantity: '10000000' }])
-  .txOutInlineDatumValue(datum, 'Mesh')  // Inline datum
+  .txOutInlineDatumValue(datum)  // default type is "Mesh"
   .changeAddress(walletAddress)
   .selectUtxosFrom(utxos)
   .complete();
 ```
+
+**JSON format (convention from real contracts, typed wrappers):**
+```typescript
+import { conStr0, byteString, integer, pubKeyAddress } from '@meshsdk/common';
+
+// JSON format: "constructor" keyword, typed field wrappers
+const datum = conStr0([
+  pubKeyAddress(beneficiaryPkh),
+  integer(unlockTime),
+]);
+
+const unsignedTx = await txBuilder
+  .txOut(scriptAddress, [{ unit: 'lovelace', quantity: '10000000' }])
+  .txOutInlineDatumValue(datum, "JSON")  // MUST specify "JSON"
+  .changeAddress(walletAddress)
+  .selectUtxosFrom(utxos)
+  .complete();
+```
+
+See [AIKEN-MAPPING.md](./AIKEN-MAPPING.md) for complete Aiken type → datum/redeemer mapping.
 
 ---
 
@@ -212,19 +256,20 @@ const unsignedTx = await txBuilder
 ### Mint with Plutus Policy
 
 ```typescript
+import { mConStr0 } from '@meshsdk/common';
+
 const policyId = 'abc123...';
 const assetName = '4d79546f6b656e';  // "MyToken" in hex
-const redeemer = { data: { alternative: 0, fields: [] } };
 
 const unsignedTx = await txBuilder
-  // 1. Signal Plutus minting
-  .mintPlutusScriptV2()
+  // 1. Signal Plutus minting (V3 for Conway, V2 for Babbage)
+  .mintPlutusScriptV3()
   // 2. Add mint operation
   .mint('1', policyId, assetName)
   // 3. Provide minting policy
   .mintingScript(policyScriptCbor)
   // 4. Provide redeemer
-  .mintRedeemerValue(redeemer)
+  .mintRedeemerValue(mConStr0([]))
   // 5. Collateral for script execution
   .txInCollateral(...)
   // 6. Send minted token somewhere
@@ -258,10 +303,10 @@ const unsignedTx = await txBuilder
 ```typescript
 // Negative quantity = burn
 const unsignedTx = await txBuilder
-  .mintPlutusScriptV2()
+  .mintPlutusScriptV3()
   .mint('-50', policyId, assetName)  // Burn 50 tokens
   .mintingScript(policyScriptCbor)
-  .mintRedeemerValue({ data: { alternative: 1, fields: [] } })  // Burn action
+  .mintRedeemerValue(mConStr1([]))  // Burn action (constructor index 1)
   .txInCollateral(...)
   .changeAddress(walletAddress)
   .selectUtxosFrom(utxos)
@@ -272,15 +317,15 @@ const unsignedTx = await txBuilder
 
 ```typescript
 const unsignedTx = await txBuilder
-  .mintPlutusScriptV2()
+  .mintPlutusScriptV3()
   .mint('1', policyId, 'TokenA')
   .mintingScript(policyScriptCbor)
-  .mintRedeemerValue(redeemer)
+  .mintRedeemerValue(mConStr0([]))
   // Additional mints with same policy auto-group
-  .mintPlutusScriptV2()
+  .mintPlutusScriptV3()
   .mint('5', policyId, 'TokenB')
   .mintingScript(policyScriptCbor)
-  .mintRedeemerValue(redeemer)  // Must be same redeemer for same policy
+  .mintRedeemerValue(mConStr0([]))  // Must be same redeemer for same policy
   .txInCollateral(...)
   .txOut(recipientAddress, [
     { unit: 'lovelace', quantity: '2000000' },
@@ -326,7 +371,7 @@ const unsignedTx = await txBuilder
 
 ```typescript
 const unsignedTx = await txBuilder
-  .withdrawalPlutusScriptV2()
+  .withdrawalPlutusScriptV3()
   .withdrawal(scriptStakeAddress, rewardAmount)
   .withdrawalScript(withdrawalScriptCbor)
   .withdrawalRedeemerValue(redeemer)
@@ -416,6 +461,88 @@ const unsignedTx = await txBuilder
 
 ---
 
+## Datum & Redeemer Construction
+
+### Convention from Real MeshJS Contracts (9 contracts studied)
+
+| Scenario | Format | Helpers | Type Param |
+|----------|--------|---------|------------|
+| **Datums** | JSON | `conStr0()` + `integer()`, `pubKeyAddress()`, etc. | `"JSON"` (explicit) |
+| **Redeemers (empty)** | Mesh | `mConStr0([])`, `mConStr1([])`, etc. | omit (default) |
+| **Redeemers (with fields)** | JSON | `conStr0()` + typed wrappers | `"JSON"`, `DEFAULT_REDEEMER_BUDGET` |
+| **Redeemers (unused)** | N/A | `""` (empty string) | omit |
+
+```typescript
+import {
+  // JSON helpers (datums & complex redeemers)
+  conStr0, conStr1, integer, byteString, pubKeyAddress,
+  // Mesh helpers (empty redeemers & simple datums)
+  mConStr0, mConStr1, mConStr2,
+  DEFAULT_REDEEMER_BUDGET,
+} from '@meshsdk/common';
+
+// Datum (JSON format) — typed wrappers + explicit "JSON" type
+const datum = conStr0([pubKeyAddress(ownerPkh), integer(deadline)]);
+txBuilder.txOutInlineDatumValue(datum, "JSON");
+
+// Redeemer - empty (Mesh format, default type)
+txBuilder.txInRedeemerValue(mConStr1([]));
+
+// Redeemer - with fields (JSON format, explicit type + budget)
+const complexRedeemer = conStr0([pubKeyAddress(recipientPkh), value(depositAmount)]);
+txBuilder.txInRedeemerValue(complexRedeemer, "JSON", DEFAULT_REDEEMER_BUDGET);
+
+// Redeemer - unused Data type (empty string)
+txBuilder.spendingReferenceTxInRedeemerValue("");
+```
+
+### Reading On-Chain Datum
+
+```typescript
+import { deserializeDatum, serializeAddressObj } from '@meshsdk/core';
+
+// Parse datum from UTxO's inline Plutus data
+const datum = deserializeDatum<MyDatumType>(utxo.output.plutusData!);
+
+// Access fields by index (matches Aiken record field order)
+const priceField = datum.fields[1].int;       // Integer
+const ownerField = datum.fields[0];           // Address object
+const hashField = datum.fields[2].bytes;      // ByteArray
+
+// Convert address object back to bech32
+const address = serializeAddressObj(datum.fields[0], networkId);
+```
+
+### Combined Spend + Mint in Same Transaction
+
+```typescript
+import { mConStr0, mConStr1 } from '@meshsdk/common';
+
+const tx = await txBuilder
+  // --- Spending part ---
+  .spendingPlutusScriptV3()
+  .txIn(scriptUtxo.input.txHash, scriptUtxo.input.outputIndex,
+        scriptUtxo.output.amount, scriptAddress)
+  .txInScript(spendingScriptCbor)
+  .txInInlineDatumPresent()
+  .txInRedeemerValue(mConStr0([]))  // spending redeemer
+
+  // --- Minting part ---
+  .mintPlutusScriptV3()
+  .mint('-1', burnPolicyId, burnAssetName)
+  .mintingScript(mintingPolicyCbor)
+  .mintRedeemerValue(mConStr1([]))  // burn redeemer
+
+  // --- Common ---
+  .txInCollateral(collateralHash, collateralIndex, collateralAmount, collateralAddr)
+  .txOut(recipientAddress, [{ unit: 'lovelace', quantity: '5000000' }])
+  .changeAddress(walletAddress)
+  .selectUtxosFrom(utxos)
+  .complete();
+```
+
+---
+
 ## Advanced Patterns
 
 ### Multi-Signature Transaction
@@ -486,7 +613,7 @@ const txAId = // derive from signed tx
 // Build second transaction that spends from txA
 const txB = await new MeshTxBuilder({ fetcher, submitter, evaluator })
   .chainTx(txAHash)  // Tell builder about pending tx
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(txAId, 0)  // Spend output from txA
   .txInScript(scriptCbor)
   .txInInlineDatumPresent()

@@ -122,7 +122,7 @@ Error: queueInput: Script input does not contain datum information
 **Solution:**
 ```typescript
 txBuilder
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(txHash, txIndex)
   .txInScript(scriptCbor)
   .txInDatumValue(datum)  // Provide datum
@@ -145,7 +145,7 @@ Error: queueInput: Script input does not contain redeemer information
 **Solution:**
 ```typescript
 txBuilder
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(txHash, txIndex)
   .txInScript(scriptCbor)
   .txInDatumValue(datum)
@@ -166,7 +166,7 @@ Error: queueInput: Script input does not contain script information
 **Solution:**
 ```typescript
 txBuilder
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(txHash, txIndex)
   .txInScript(scriptCbor)  // Add inline script
   // OR
@@ -225,7 +225,7 @@ const txBuilder = new MeshTxBuilder({
 **Solution:**
 ```typescript
 txBuilder
-  .spendingPlutusScriptV2()
+  .spendingPlutusScriptV3()
   .txIn(...)
   // ...
   .txInCollateral(  // Add collateral
@@ -419,13 +419,13 @@ txBuilder
 ```typescript
 txBuilder
   .txIn(hash, index)  // Too late - already a PubKey input
-  .spendingPlutusScriptV2()  // This won't work!
+  .spendingPlutusScriptV3()  // This won't work!
 ```
 
 **Correct:**
 ```typescript
 txBuilder
-  .spendingPlutusScriptV2()  // FIRST - signals script input
+  .spendingPlutusScriptV3()  // FIRST - signals script input
   .txIn(hash, index)          // THEN - add the input
 ```
 
@@ -489,16 +489,130 @@ const newTxBuilder = new MeshTxBuilder({ ... });
 
 **Check your script's datum type and match it:**
 ```typescript
-// If script expects { owner: PubKeyHash, deadline: POSIXTime }
+import { mConStr0 } from '@meshsdk/common';
+
+// Mesh Data type: use "alternative", NOT "constructor"
 const datum = {
-  constructor: 0,  // ConstrPlutusData index
-  fields: [
-    { bytes: ownerPubKeyHash },
-    { int: deadline }
-  ]
+  alternative: 0,  // ConstrPlutusData index
+  fields: [ownerPubKeyHash, deadline]
 };
-.txInDatumValue(datum, 'Mesh')
+// Or: const datum = mConStr0([ownerPubKeyHash, deadline]);
+.txInDatumValue(datum)  // default type is "Mesh"
 ```
+
+---
+
+### Using "constructor" Instead of "alternative" (Datum Format Mix-Up)
+
+**Issue:** Transaction fails or produces wrong datum when using `{ constructor: 0, fields: [...] }` with the default Mesh data type.
+
+**Cause:** The Mesh SDK has THREE datum formats. The **default is `"Mesh"`**, which uses `alternative` — NOT `constructor`:
+
+| Format | Keyword | Field Values | Example |
+|--------|---------|-------------|---------|
+| `"Mesh"` (default) | `alternative` | Primitives directly | `{ alternative: 0, fields: [42, "hex"] }` |
+| `"JSON"` (cardano-cli) | `constructor` | Typed wrappers | `{ constructor: 0, fields: [{ int: 42 }, { bytes: "hex" }] }` |
+| `"CBOR"` | N/A | Hex string | `"d8799f182aff"` |
+
+**Wrong:**
+```typescript
+// WRONG - "constructor" with default Mesh type
+.txOutInlineDatumValue({ constructor: 0, fields: [{ int: 42 }] })
+```
+
+**Correct:**
+```typescript
+import { mConStr0 } from '@meshsdk/common';
+
+// Option 1: Mesh format with "alternative"
+.txOutInlineDatumValue({ alternative: 0, fields: [42] })
+
+// Option 2: Use Mesh helper
+.txOutInlineDatumValue(mConStr0([42]))
+
+// Option 3: If you MUST use "constructor", specify "JSON" type explicitly
+.txOutInlineDatumValue({ constructor: 0, fields: [{ int: 42 }] }, "JSON")
+```
+
+---
+
+### Missing "JSON" Type Parameter for JSON-Format Datums
+
+**Issue:** Datum appears correct but script validation fails or datum doesn't match expected hash.
+
+**Cause:** Using JSON-format datum helpers (`conStr0()`, `integer()`, etc.) without specifying `"JSON"` as the type parameter. The default type is `"Mesh"`, which interprets the structure differently.
+
+**Wrong:**
+```typescript
+import { conStr0, integer } from '@meshsdk/common';
+
+const datum = conStr0([integer(42)]);
+.txOutInlineDatumValue(datum)  // BUG: defaults to "Mesh" type!
+```
+
+**Correct:**
+```typescript
+import { conStr0, integer } from '@meshsdk/common';
+
+const datum = conStr0([integer(42)]);
+.txOutInlineDatumValue(datum, "JSON")  // Must specify "JSON"
+```
+
+**Rule:** If you use `conStr0/conStr1/conStr2` or typed wrappers like `integer()`, `byteString()`, `pubKeyAddress()` — always pass `"JSON"` as the type parameter. If you use `mConStr0/mConStr1/mConStr2` with raw primitives — the default `"Mesh"` type is correct.
+
+---
+
+### Using Wrong Helpers for Data Format
+
+**Issue:** Mixing JSON-format helpers with Mesh type parameter or vice versa.
+
+**Cause:** Two parallel helper systems exist in `@meshsdk/common`:
+
+| Helpers | Format | Type Param | Used For |
+|---------|--------|------------|----------|
+| `conStr0()`, `integer()`, `byteString()`, `pubKeyAddress()` | JSON | `"JSON"` | Datums (convention) |
+| `mConStr0()`, `mConStr1()`, raw primitives | Mesh | `"Mesh"` (default) | Redeemers (convention) |
+
+**Wrong combinations:**
+```typescript
+// WRONG: Mesh helper with "JSON" type
+.txOutInlineDatumValue(mConStr0([42]), "JSON")
+
+// WRONG: JSON helper with default "Mesh" type
+.txInRedeemerValue(conStr0([integer(42)]))
+```
+
+**Correct combinations:**
+```typescript
+// Datum: JSON helpers + "JSON" type
+.txOutInlineDatumValue(conStr0([integer(42)]), "JSON")
+
+// Redeemer: Mesh helpers + default type (omit or "Mesh")
+.txInRedeemerValue(mConStr0([42]))
+```
+
+---
+
+### Using Empty String for Unused/Generic Redeemers
+
+**Issue:** Unsure what to pass as redeemer when the Aiken script uses `_redeemer: Data` (ignores the redeemer).
+
+**Cause:** Some scripts accept a generic `Data` type redeemer and don't validate it. Real MeshJS contracts use an empty string `""` for these.
+
+**Solution:**
+```typescript
+// When the script ignores the redeemer (e.g., _redeemer: Data)
+.txInRedeemerValue("")   // Empty string — valid for unused redeemers
+.mintRedeemerValue("")   // Also works for minting
+```
+
+**When to use each redeemer approach:**
+
+| Script Redeemer Type | What to Pass | Example |
+|---------------------|-------------|---------|
+| Named enum, no fields (e.g., `Cancel`, `Buy`) | `mConStr0([])`, `mConStr1([])` | `mConStr1([])` for 2nd variant |
+| Named enum with fields (e.g., `Update { price: Int }`) | `conStr0([integer(n)])` + `"JSON"` + `DEFAULT_REDEEMER_BUDGET` | Complex redeemer |
+| `_redeemer: Data` (unused/ignored) | `""` (empty string) | Script doesn't check it |
 
 ---
 

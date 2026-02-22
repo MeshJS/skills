@@ -115,16 +115,22 @@ txOutReferenceScript(
 
 ## Scripts - Spending
 
-### spendingPlutusScriptV1 / V2 / V3
+### spendingPlutusScript / spendingPlutusScriptV1 / V2 / V3
 Signal that the next `txIn()` is a Plutus script input.
 
 ```typescript
+// Dynamic version (pass version as parameter)
+spendingPlutusScript(languageVersion: LanguageVersion): this
+
+// Static shortcuts (equivalent to calling the dynamic version)
 spendingPlutusScriptV1(): this  // Plutus V1
 spendingPlutusScriptV2(): this  // Plutus V2
 spendingPlutusScriptV3(): this  // Plutus V3 (Conway)
 ```
 
-**Usage:** Call BEFORE `txIn()` for script inputs.
+`LanguageVersion` = `"V1" | "V2" | "V3"`
+
+**Usage:** Call BEFORE `txIn()` for script inputs. Both forms are equivalent — `.spendingPlutusScript("V3")` and `.spendingPlutusScriptV3()` produce identical results.
 
 ### txInScript
 Provide the spending script CBOR.
@@ -173,6 +179,24 @@ spendingTxInReference(
 ): this
 ```
 
+### spendingReferenceTxInInlineDatumPresent
+Signal that the reference script input has an inline datum. **Alias of `txInInlineDatumPresent()`** — both are equivalent.
+
+```typescript
+spendingReferenceTxInInlineDatumPresent(): this
+```
+
+### spendingReferenceTxInRedeemerValue
+Provide redeemer for a reference script input. **Alias of `txInRedeemerValue()`** — both are equivalent.
+
+```typescript
+spendingReferenceTxInRedeemerValue(
+  redeemer: BuilderData["content"],
+  type: "Mesh" | "JSON" | "CBOR" = "Mesh",
+  exUnits: { mem: number, steps: number } = DEFAULT_REDEEMER_BUDGET
+): this
+```
+
 ### simpleScriptTxInReference
 Use a native (simple) script reference.
 
@@ -189,10 +213,14 @@ simpleScriptTxInReference(
 
 ## Scripts - Minting
 
-### mintPlutusScriptV1 / V2 / V3
+### mintPlutusScript / mintPlutusScriptV1 / V2 / V3
 Signal that the next `mint()` uses a Plutus minting policy.
 
 ```typescript
+// Dynamic version
+mintPlutusScript(languageVersion: LanguageVersion): this
+
+// Static shortcuts
 mintPlutusScriptV1(): this
 mintPlutusScriptV2(): this
 mintPlutusScriptV3(): this
@@ -228,8 +256,19 @@ mintTxInReference(
 ): this
 ```
 
+### mintReferenceTxInRedeemerValue
+Provide redeemer for minting (primary method).
+
+```typescript
+mintReferenceTxInRedeemerValue(
+  redeemer: BuilderData["content"],
+  type: "Mesh" | "JSON" | "CBOR" = "Mesh",
+  exUnits: { mem: number, steps: number } = DEFAULT_REDEEMER_BUDGET
+): this
+```
+
 ### mintRedeemerValue
-Provide redeemer for minting.
+Provide redeemer for minting. **Alias of `mintReferenceTxInRedeemerValue()`** — both are equivalent.
 
 ```typescript
 mintRedeemerValue(
@@ -243,10 +282,14 @@ mintRedeemerValue(
 
 ## Scripts - Withdrawal
 
-### withdrawalPlutusScriptV1 / V2 / V3
+### withdrawalPlutusScript / withdrawalPlutusScriptV1 / V2 / V3
 Signal that the next `withdrawal()` uses a Plutus script.
 
 ```typescript
+// Dynamic version
+withdrawalPlutusScript(languageVersion: LanguageVersion): this
+
+// Static shortcuts
 withdrawalPlutusScriptV1(): this
 withdrawalPlutusScriptV2(): this
 withdrawalPlutusScriptV3(): this
@@ -296,10 +339,14 @@ withdrawalRedeemerValue(
 
 ## Scripts - Voting
 
-### votePlutusScriptV1 / V2 / V3
+### votePlutusScript / votePlutusScriptV1 / V2 / V3
 Signal that the next `vote()` uses a Plutus script.
 
 ```typescript
+// Dynamic version
+votePlutusScript(languageVersion: LanguageVersion): this
+
+// Static shortcuts
 votePlutusScriptV1(): this
 votePlutusScriptV2(): this
 votePlutusScriptV3(): this

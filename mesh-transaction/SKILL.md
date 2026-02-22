@@ -24,9 +24,9 @@ npm install @meshsdk/core  # includes transaction + wallet + provider
 | Task | Method Chain |
 |------|--------------|
 | Send ADA | `txIn() -> txOut() -> changeAddress() -> complete()` |
-| Mint tokens (Plutus) | `mintPlutusScriptV2() -> mint() -> mintingScript() -> mintRedeemerValue() -> ...` |
+| Mint tokens (Plutus) | `mintPlutusScriptV3() -> mint() -> mintingScript() -> mintRedeemerValue() -> ...` |
 | Mint tokens (Native) | `mint() -> mintingScript() -> ...` |
-| Script spending | `spendingPlutusScriptV2() -> txIn() -> txInScript() -> txInDatumValue() -> txInRedeemerValue() -> ...` |
+| Script spending | `spendingPlutusScriptV3() -> txIn() -> txInScript() -> txInDatumValue() -> txInRedeemerValue() -> ...` |
 | Stake delegation | `delegateStakeCertificate(rewardAddress, poolId)` |
 | Withdraw rewards | `withdrawal(rewardAddress, coin) -> withdrawalScript() -> withdrawalRedeemerValue()` |
 | Governance vote | `vote(voter, govActionId, votingProcedure)` |
@@ -62,6 +62,7 @@ const txBuilder = new MeshTxBuilder({
 
 - [TRANSACTION.md](./TRANSACTION.md) - Complete API reference
 - [PATTERNS.md](./PATTERNS.md) - Common transaction recipes
+- [AIKEN-MAPPING.md](./AIKEN-MAPPING.md) - Aiken smart contract type → MeshTxBuilder mapping
 - [TROUBLESHOOTING.md](./TROUBLESHOOTING.md) - Error solutions
 
 ## Key Concepts
@@ -77,16 +78,75 @@ txBuilder
 ```
 
 ### Script Versions
-- `spendingPlutusScriptV1/V2/V3()` - Set before `txIn()` for script inputs
-- `mintPlutusScriptV1/V2/V3()` - Set before `mint()` for Plutus minting
-- `withdrawalPlutusScriptV1/V2/V3()` - Set before `withdrawal()` for script withdrawals
-- `votePlutusScriptV1/V2/V3()` - Set before `vote()` for script votes
 
-### Data Types
-Datum and redeemer values accept three formats:
-- `"Mesh"` (default) - Mesh Data type
-- `"JSON"` - Raw constructor format
-- `"CBOR"` - Hex-encoded CBOR string
+**Choose the version matching the script's Plutus version:**
+
+| Version | Era | When to Use |
+|---------|-----|-------------|
+| V1 | Alonzo | Legacy scripts only |
+| V2 | Babbage | Existing Babbage-era scripts |
+| **V3** | **Conway** | **New scripts (current era, default choice)** |
+
+`LanguageVersion` type = `"V1" | "V2" | "V3"`
+
+Each script context has **two equivalent calling styles** — static shortcuts and dynamic version:
+
+| Context | Static Shortcut | Dynamic Version |
+|---------|----------------|-----------------|
+| Spending | `spendingPlutusScriptV3()` | `spendingPlutusScript("V3")` |
+| Minting | `mintPlutusScriptV3()` | `mintPlutusScript("V3")` |
+| Withdrawal | `withdrawalPlutusScriptV3()` | `withdrawalPlutusScript("V3")` |
+| Voting | `votePlutusScriptV3()` | `votePlutusScript("V3")` |
+
+**Default to V3 for new Conway-era scripts.** Only use V2/V1 for scripts compiled against those specific Plutus versions.
+
+### Data Types (Datum & Redeemer Formats)
+
+Datum and redeemer values accept three formats via the `type` parameter:
+
+**`"Mesh"` (default) — Use `alternative`, NOT `constructor`:**
+```typescript
+import { mConStr0, mConStr1 } from '@meshsdk/common';
+
+// Mesh Data type uses "alternative" for ConstrPlutusData
+const datum = { alternative: 0, fields: [42, "deadbeef"] };
+// Or use helper: mConStr0([42, "deadbeef"])
+// mConStr1([...]) for constructor index 1, etc.
+
+.txOutInlineDatumValue(datum)           // default type is "Mesh"
+.txOutInlineDatumValue(datum, "Mesh")   // explicit
+```
+
+**`"JSON"` — Cardano-CLI format, uses `constructor`:**
+```typescript
+import { conStr0, integer, byteString, pubKeyAddress } from '@meshsdk/common';
+
+// JSON format uses "constructor" with typed field wrappers
+const datum = conStr0([integer(42), byteString("deadbeef")]);
+// Equivalent to: { constructor: 0, fields: [{ int: 42 }, { bytes: "deadbeef" }] }
+
+.txOutInlineDatumValue(datum, "JSON")   // MUST specify "JSON"
+```
+
+**`"CBOR"` — Pre-serialized hex:**
+```typescript
+.txOutInlineDatumValue("d8799f182aff", "CBOR")
+```
+
+**Convention from real MeshJS contracts:**
+
+| Scenario | Format | Helpers | Type Parameter |
+|----------|--------|---------|----------------|
+| **Datums** (always) | JSON | `conStr0()`, `integer()`, `pubKeyAddress()` | `"JSON"` (explicit) |
+| **Redeemers** (empty, no fields) | Mesh | `mConStr0([])`, `mConStr1([])` | omit (default `"Mesh"`) |
+| **Redeemers** (with fields) | JSON | `conStr0()` + typed wrappers | `"JSON"` + `DEFAULT_REDEEMER_BUDGET` |
+| **Redeemers** (unused/`Data` type) | N/A | `""` (empty string) | omit |
+
+**Note:** Some contracts use Mesh format (`mConStr0`) for simple datums without a type parameter. Both formats work — the critical rule is **matching the type parameter to the format**.
+
+See [AIKEN-MAPPING.md](./AIKEN-MAPPING.md) for complete Aiken type → Mesh data mapping.
+
+**CRITICAL:** If you omit the type parameter, the default is `"Mesh"`. Using `{ constructor: 0, ... }` without specifying `"JSON"` will cause errors.
 
 ### Reference Scripts
 Use `*TxInReference()` methods to reference scripts stored on-chain instead of including them in the transaction (reduces tx size/fees).
@@ -95,5 +155,7 @@ Use `*TxInReference()` methods to reference scripts stored on-chain instead of i
 
 1. **Change address required** - `complete()` fails without `changeAddress()`
 2. **Collateral required** - Script transactions need `txInCollateral()`
-3. **Order matters** - Call `spendingPlutusScriptV2()` BEFORE `txIn()` for script inputs
+3. **Order matters** - Call `spendingPlutusScriptV3()` BEFORE `txIn()` for script inputs
 4. **Coin selection** - Provide UTxOs via `selectUtxosFrom()` for auto-selection
+5. **Datum format** - Default `"Mesh"` type uses `{ alternative: 0 }`, NOT `{ constructor: 0 }`. Use `"JSON"` type for `{ constructor: 0 }` (cardano-cli format)
+6. **Script version** - Default to V3 for Conway-era scripts. Match the Plutus version the script was compiled with
