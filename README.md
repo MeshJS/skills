@@ -35,6 +35,7 @@ You just ask: *"Help me connect a browser wallet and send 10 ADA to this address
 | Skill | Package | Description |
 |-------|---------|-------------|
 | [mesh-transaction](./mesh-transaction/) | `@meshsdk/transaction` | Transaction building with MeshTxBuilder |
+| [mesh-tx-builder-migration](./mesh-tx-builder-migration/) | `@meshsdk/transaction` | Moving from MeshTxBuilder to TxBuilder |
 | [mesh-wallet](./mesh-wallet/) | `@meshsdk/wallet` | Browser & headless wallet integration |
 | [mesh-core-cst](./mesh-core-cst/) | `@meshsdk/core-cst` | Low-level serialization & utilities |
 
@@ -66,6 +67,7 @@ Copy skill folders to Claude Code's skill directory:
 ```bash
 # Copy all skills
 cp -r mesh-transaction ~/.claude/skills/mesh-transaction
+cp -r mesh-tx-builder-migration ~/.claude/skills/mesh-tx-builder-migration
 cp -r mesh-wallet ~/.claude/skills/mesh-wallet
 cp -r mesh-core-cst ~/.claude/skills/mesh-core-cst
 ```
@@ -77,6 +79,7 @@ Add to your repository so everyone on the team gets the skills automatically:
 ```bash
 mkdir -p .claude/skills
 cp -r mesh-transaction .claude/skills/mesh-transaction
+cp -r mesh-tx-builder-migration .claude/skills/mesh-tx-builder-migration
 cp -r mesh-wallet .claude/skills/mesh-wallet
 cp -r mesh-core-cst .claude/skills/mesh-core-cst
 ```

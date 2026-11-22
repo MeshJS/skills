@@ -11,6 +11,8 @@ metadata:
 
 AI-assisted Cardano transaction building using `MeshTxBuilder` from `@meshsdk/transaction`.
 
+`MeshTxBuilder` is deprecated. For new code with `TxBuilder`, and to move existing code, use the `mesh-tx-builder-migration` skill.
+
 ## Package Info
 
 ```bash
