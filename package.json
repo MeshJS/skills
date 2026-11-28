@@ -25,6 +25,7 @@
   "homepage": "https://meshjs.dev",
   "files": [
     "mesh-transaction/",
+    "mesh-tx-builder-migration/",
     "mesh-wallet/",
     "mesh-core-cst/",
     "README.md"
@@ -32,6 +33,7 @@
   "exports": {
     ".": "./README.md",
     "./mesh-transaction": "./mesh-transaction/SKILL.md",
+    "./mesh-tx-builder-migration": "./mesh-tx-builder-migration/SKILL.md",
     "./mesh-wallet": "./mesh-wallet/SKILL.md",
     "./mesh-core-cst": "./mesh-core-cst/SKILL.md"
   }
